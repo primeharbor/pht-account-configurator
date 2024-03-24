@@ -1,0 +1,291 @@
+# Copyright 2024 Chris Farris <chrisf@primeharbor.com>
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Deploy StepFunction to configure new AWS accounts
+Transform: AWS::Serverless-2016-10-31
+
+Parameters:
+
+  pBucketName:
+    Description: Name of the bucket to hold the images
+    Type: String
+
+  pRoleName:
+    Description: Default name of the AssumeRole to assume into accounts
+    Type: String
+    Default: OrganizationAccountAccessRole
+
+  pConfigFile:
+    Type: String
+    Description: Name of the Config File
+    Default: account-factory-config.yaml
+
+Globals:
+  Function:
+    Runtime: python3.12
+    MemorySize: 2048
+    Timeout: 300
+    Environment:
+      Variables:
+          ROLE_SESSION_NAME: "account-factory"
+          BUCKET: !Ref pBucketName
+          CONFIG_FILE: !Ref pConfigFile
+          ROLE_NAME: !Ref pRoleName
+          LOG_LEVEL: 'DEBUG'
+
+Resources:
+
+  LambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - lambda.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      Path: /
+      ManagedPolicyArns:
+      - arn:aws:iam::aws:policy/AWSOrganizationsReadOnlyAccess
+      Policies:
+      - PolicyName: S3Access
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Action:
+            - s3:*
+            Effect: Allow
+            Resource:
+              - !Join ['', ['arn:aws:s3:::', !Ref pBucketName , /*]]
+              - !Join ['', ['arn:aws:s3:::', !Ref pBucketName ]]
+          - Action:
+            - s3:ListAllMyBuckets
+            - s3:GetBucketLocation
+            Effect: Allow
+            Resource: '*'
+      - PolicyName: LambdaLogging
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Resource: '*'
+            Action:
+            - logs:*
+            Effect: Allow
+
+      - PolicyName: StartStepFunction
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: "Allow"
+            Action:
+            - states:StartExecution
+            Resource: '*'
+      - PolicyName: AssumeCrossAccountRole
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: "Allow"
+            Action:
+            - sts:AssumeRole
+            Resource: !Sub "arn:aws:iam::*:role/${pRoleName}"
+
+  #
+  # State Machine Functions
+  #
+  LoadConfigurationLambdaFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${AWS::StackName}-load-configuration"
+      Description: Load the Configuration for the New Account StepFunction
+      Handler: LoadConfigurationLambdaFunction.handler
+      Role: !GetAtt LambdaRole.Arn
+      CodeUri: ../lambda
+
+  ConfigurePasswordPolicyFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${AWS::StackName}-config-password-policy"
+      Description: Configure the IAM Password Policy in new AWS Accounts
+      Handler: ConfigurePasswordPolicyFunction.handler
+      Role: !GetAtt LambdaRole.Arn
+      CodeUri: ../lambda
+
+  EnableS3BlockPublicAccess:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${AWS::StackName}-s3-block-public-access"
+      Description: Configure Account-wide Block Public Access in new AWS Accounts
+      Handler: EnableS3BlockPublicAccess.handler
+      Role: !GetAtt LambdaRole.Arn
+      CodeUri: ../lambda
+
+  EnableEBSBlockPublicAccess:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${AWS::StackName}-ebs-block-public-access"
+      Description: Configure EBS Block Public Access in all regions of new AWS Accounts
+      Handler: EnableEBSBlockPublicAccess.handler
+      Role: !GetAtt LambdaRole.Arn
+      CodeUri: ../lambda
+
+  EnableEBSEncryption:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${AWS::StackName}-ebs-encryption"
+      Description: Configure EBS default encryption in all regions of new AWS Accounts
+      Handler: EnableEBSEncryption.handler
+      Role: !GetAtt LambdaRole.Arn
+      CodeUri: ../lambda
+
+  DeleteDefaultVPCs:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${AWS::StackName}-delete-default-vpcs"
+      Description: Delete the Default VPCs in new AWS Accounts
+      Handler: DeleteDefaultVPCs.handler
+      Role: !GetAtt LambdaRole.Arn
+      CodeUri: ../lambda
+
+
+  #
+  # StateMachine
+  #
+  StateMachineExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - !Sub states.${AWS::Region}.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      Path: /
+      Policies:
+      - PolicyName: InvokeLambda
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Action:
+            - lambda:InvokeFunction
+            Effect: Allow
+            Resource:
+              - !GetAtt LoadConfigurationLambdaFunction.Arn
+              - !GetAtt ConfigurePasswordPolicyFunction.Arn
+              - !GetAtt EnableS3BlockPublicAccess.Arn
+              - !GetAtt EnableEBSBlockPublicAccess.Arn
+              - !GetAtt EnableEBSEncryption.Arn
+              - !GetAtt DeleteDefaultVPCs.Arn
+      - PolicyName: LambdaLogging
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Resource: '*'
+            Action:
+            - logs:*
+            Effect: Allow
+
+  NewAccountStateMachine:
+    Type: AWS::Serverless::StateMachine
+    Properties:
+      Name: !Sub "${AWS::StackName}-new-account-statemachine"
+      Role: !GetAtt StateMachineExecutionRole.Arn
+      Definition:
+        Comment: !Sub "($AWS::StackName) Configure New AWS Accounts"
+        StartAt: LoadConfigurationLambdaFunction
+        States:
+          LoadConfigurationLambdaFunction:
+            Type: Task
+            Resource: !GetAtt LoadConfigurationLambdaFunction.Arn
+            Next: ConfigurePasswordPolicyFunction
+          ConfigurePasswordPolicyFunction:
+            Type: Task
+            Resource: !GetAtt ConfigurePasswordPolicyFunction.Arn
+            Next: EnableS3BlockPublicAccess
+          EnableS3BlockPublicAccess:
+            Type: Task
+            Resource: !GetAtt EnableS3BlockPublicAccess.Arn
+            Next: EnableEBSBlockPublicAccess
+          EnableEBSBlockPublicAccess:
+            Type: Task
+            Resource: !GetAtt EnableEBSBlockPublicAccess.Arn
+            Next: EnableEBSEncryption
+          EnableEBSEncryption:
+            Type: Task
+            Resource: !GetAtt EnableEBSEncryption.Arn
+            Next: DeleteDefaultVPCs
+          DeleteDefaultVPCs:
+            Type: Task
+            Resource: !GetAtt DeleteDefaultVPCs.Arn
+            End: true
+
+  TriggerEvent:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: Trigger Account Factory on new account creation
+      State: ENABLED
+      EventPattern:
+        source:
+          - aws.organizations
+        detail:
+          eventName:
+            - "CreateAccountResult"
+      Targets:
+      - Arn: !Ref NewAccountStateMachine
+        RoleArn: !GetAtt TriggerStateMachineRole.Arn
+        Id: TargetFunctionV1
+
+  TriggerStateMachineRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - events.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      Path: /
+      Policies:
+      - PolicyName: ExecuteStateMachine
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Action:
+            - states:StartExecution
+            Effect: Allow
+            Resource:
+              - !Ref NewAccountStateMachine
+
+
+Outputs:
+  StackName:
+    Value: !Ref AWS::StackName
+    Description: Just the name of this stack
+
+  NewAccountStateMachine:
+    Description: Arn of the AWS New Account State Machine
+    Value: !Ref NewAccountStateMachine
+
+  BucketName:
+    Value: !Ref pBucketName
+    Description: Name of S3 Bucket where all files are stored

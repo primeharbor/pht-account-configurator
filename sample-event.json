@@ -1,0 +1,11 @@
+{
+    "detail": {
+      "serviceEventDetails": {
+        "createAccountStatus": {
+          "state": "SUCCEEDED",
+          "accountId": "CHANGEME"
+        }
+      },
+      "eventCategory": "Management"
+    }
+}
