@@ -152,6 +152,15 @@ Resources:
       Role: !GetAtt LambdaRole.Arn
       CodeUri: ../lambda
 
+  EnableIMDSv2:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${AWS::StackName}-enable-imdsv2"
+      Description: Enable mandatory imdsv2 in all regions of new AWS Accounts
+      Handler: EnableIMDSv2.handler
+      Role: !GetAtt LambdaRole.Arn
+      CodeUri: ../lambda
+
   DeleteDefaultVPCs:
     Type: AWS::Serverless::Function
     Properties:
@@ -192,6 +201,7 @@ Resources:
               - !GetAtt EnableS3BlockPublicAccess.Arn
               - !GetAtt EnableEBSBlockPublicAccess.Arn
               - !GetAtt EnableEBSEncryption.Arn
+              - !GetAtt EnableIMDSv2.Arn
               - !GetAtt DeleteDefaultVPCs.Arn
       - PolicyName: LambdaLogging
         PolicyDocument:
@@ -230,6 +240,10 @@ Resources:
           EnableEBSEncryption:
             Type: Task
             Resource: !GetAtt EnableEBSEncryption.Arn
+            Next: EnableIMDSv2
+          EnableIMDSv2:
+            Type: Task
+            Resource: !GetAtt EnableIMDSv2.Arn
             Next: DeleteDefaultVPCs
           DeleteDefaultVPCs:
             Type: Task

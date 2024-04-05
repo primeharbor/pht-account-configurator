@@ -51,3 +51,10 @@ enable_account_s3_block_public_access:
     BlockPublicPolicy: True
     RestrictPublicBuckets: true
 
+
+# Settings documented here: https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/ec2/client/modify_instance_metadata_defaults.html
+require_imdsv2:
+  HttpTokens: required
+  HttpPutResponseHopLimit: 1
+  HttpEndpoint: no-preference
+  InstanceMetadataTags: no-preference
