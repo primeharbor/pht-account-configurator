@@ -24,6 +24,13 @@ test-event.json
 _yaml
 yaml
 .env
+lambda/bin
+lambda/boto*
+lambda/dateutil
+lambda/jmespath
+lambda/s3transfer
+lambda/urllib3
+lambda/six.py
 
 # Manifests are inputs to Cloudformation. They contain deploy specific things (like payer accounts)
 *Manifest.yaml
