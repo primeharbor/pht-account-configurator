@@ -237,18 +237,57 @@ Resources:
             Type: Task
             Resource: !GetAtt EnableEBSBlockPublicAccess.Arn
             Next: EnableEBSEncryption
+            Catch:
+              - ErrorEquals:
+                - RetryAfterDelay
+                Next: RetryEnableEBSBlockPublicAccess
+                ResultPath: $.error-info
           EnableEBSEncryption:
             Type: Task
             Resource: !GetAtt EnableEBSEncryption.Arn
             Next: EnableIMDSv2
+            Catch:
+              - ErrorEquals:
+                - RetryAfterDelay
+                Next: RetryEnableEBSEncryption
+                ResultPath: $.error-info
           EnableIMDSv2:
             Type: Task
             Resource: !GetAtt EnableIMDSv2.Arn
             Next: DeleteDefaultVPCs
+            Catch:
+              - ErrorEquals:
+                - RetryAfterDelay
+                Next: RetryEnableIMDSv2
+                ResultPath: $.error-info
           DeleteDefaultVPCs:
             Type: Task
             Resource: !GetAtt DeleteDefaultVPCs.Arn
             End: true
+            Catch:
+              - ErrorEquals:
+                - RetryAfterDelay
+                Next: RetryDeleteDefaultVPCs
+                ResultPath: $.error-info
+
+          # All the Retry States go here
+          RetryEnableEBSBlockPublicAccess:
+            Type : Wait
+            Seconds : 300
+            Next: EnableS3BlockPublicAccess
+          RetryEnableEBSEncryption:
+            Type : Wait
+            Seconds : 300
+            Next: EnableEBSEncryption
+          RetryEnableIMDSv2:
+            Type : Wait
+            Seconds : 300
+            Next: EnableIMDSv2
+          RetryDeleteDefaultVPCs:
+            Type : Wait
+            Seconds : 300
+            Next: DeleteDefaultVPCs
+
 
   TriggerEvent:
     Type: AWS::Events::Rule

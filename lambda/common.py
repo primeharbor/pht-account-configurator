@@ -68,7 +68,14 @@ def get_regions(cross_account_role_arn):
 
     # otherwise return all the regions, us-east-1 first
     ec2 = get_client('ec2', cross_account_role_arn, region="us-east-1")
-    response = ec2.describe_regions()
+    try:
+        response = ec2.describe_regions()
+    except ClientError as e:
+        if e.response['Error']['Code'] == "OptInRequired":
+            raise RetryAfterDelay("Account Not Fully Enabled")
+        else:
+            raise
+
     output = ['us-east-1']
     for r in response['Regions']:
         # return us-east-1 first, but dont return it twice
@@ -76,3 +83,7 @@ def get_regions(cross_account_role_arn):
             continue
         output.append(r['RegionName'])
     return(output)
+
+class RetryAfterDelay(Exception):
+    """raised when the OptInRequired Occurs"""
+    pass
