@@ -20,6 +20,8 @@ import os
 import yaml
 from yaml import Loader, Dumper
 
+from common import targets_local_account
+
 import logging
 logger = logging.getLogger()
 logger.setLevel(getattr(logging, os.getenv('LOG_LEVEL', default='INFO')))
@@ -42,14 +44,17 @@ def handler(event, context):
     new_aws_account_id = event['detail']['serviceEventDetails']['createAccountStatus']['accountId']
     cross_account_role_arn = f"arn:aws:iam::{new_aws_account_id}:role/{os.environ['ROLE_NAME']}"
 
-    # Verify AssumeRole works
-    client = boto3.client('sts')
-    try:
-        session = client.assume_role(RoleArn=cross_account_role_arn, RoleSessionName=os.environ['ROLE_SESSION_NAME'])
-        creds = session['Credentials']  # Save for later
-    except ClientError as e:
-        logger.critical(f"Failed to assume role {cross_account_role_arn} in account {new_aws_account_id} : {e.response['Error']['Code']}")
-        raise
+    # Verify AssumeRole works -- but skip when the target is the account this Lambda runs in
+    # (e.g. the org management account), where the configurator acts locally without AssumeRole.
+    if not targets_local_account(cross_account_role_arn):
+        client = boto3.client('sts')
+        try:
+            client.assume_role(RoleArn=cross_account_role_arn, RoleSessionName=os.environ['ROLE_SESSION_NAME'])
+        except ClientError as e:
+            logger.critical(f"Failed to assume role {cross_account_role_arn} in account {new_aws_account_id} : {e.response['Error']['Code']}")
+            raise
+    else:
+        logger.info(f"Target {new_aws_account_id} is the local account; skipping the AssumeRole sanity check")
 
     new_event = {
         "global_config": global_config,

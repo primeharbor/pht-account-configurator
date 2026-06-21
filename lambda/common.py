@@ -23,11 +23,29 @@ import logging
 
 logger = logging.getLogger()
 
+# Cache the account this Lambda runs in, so we can detect when a target is "local"
+# (e.g. the org management account) and skip the cross-account AssumeRole.
+_LOCAL_ACCOUNT_ID = None
+
+
+def targets_local_account(cross_account_role_arn):
+    """True when the role ARN points at the account this Lambda is running in."""
+    global _LOCAL_ACCOUNT_ID
+    if _LOCAL_ACCOUNT_ID is None:
+        _LOCAL_ACCOUNT_ID = boto3.client('sts').get_caller_identity()['Account']
+    # arn:aws:iam::<account_id>:role/<name>
+    return cross_account_role_arn.split(':')[4] == _LOCAL_ACCOUNT_ID
+
+
 def get_client(type, cross_account_role_arn, region=None):
     """
     Returns a boto3 client for the service "type" with credentials in the target account.
     Optionally you can specify the region for the client and the session_name for the AssumeRole.
     """
+    if targets_local_account(cross_account_role_arn):
+        # Target is the account this Lambda runs in (e.g. the org management account);
+        # use the Lambda's own role directly -- no AssumeRole.
+        return boto3.client(type, region_name=region)
     client = boto3.client('sts')
     try:
         session = client.assume_role(RoleArn=cross_account_role_arn, RoleSessionName=os.environ['ROLE_SESSION_NAME'])
@@ -48,6 +66,10 @@ def get_resource(type, cross_account_role_arn, region=None):
     Returns a boto3 client for the service "type" with credentials in the target account.
     Optionally you can specify the region for the client and the session_name for the AssumeRole.
     """
+    if targets_local_account(cross_account_role_arn):
+        # Target is the account this Lambda runs in (e.g. the org management account);
+        # use the Lambda's own role directly -- no AssumeRole.
+        return boto3.resource(type, region_name=region)
     client = boto3.client('sts')
     try:
         session = client.assume_role(RoleArn=cross_account_role_arn, RoleSessionName=os.environ['ROLE_SESSION_NAME'])

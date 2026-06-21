@@ -103,6 +103,35 @@ Resources:
             Action:
             - sts:AssumeRole
             Resource: !Sub "arn:aws:iam::*:role/${pRoleName}"
+      # When the target account is the one this stack runs in (the org management account),
+      # the Lambdas skip AssumeRole and act locally, so this role needs the configurator
+      # permissions directly.
+      - PolicyName: LocalAccountConfiguration
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - ec2:Describe*
+            - ec2:DeleteVpc
+            - ec2:DeleteSubnet
+            - ec2:DeleteRouteTable
+            - ec2:DeleteNetworkAcl
+            - ec2:DeleteSecurityGroup
+            - ec2:DeleteInternetGateway
+            - ec2:DetachInternetGateway
+            - ec2:DeleteEgressOnlyInternetGateway
+            - ec2:DeleteVpcPeeringConnection
+            - ec2:DeleteVpcEndpoints
+            - ec2:DeleteVpnConnection
+            - ec2:DeleteVpnGateway
+            - ec2:DetachVpnGateway
+            - ec2:EnableSnapshotBlockPublicAccess
+            - ec2:EnableEbsEncryptionByDefault
+            - ec2:ModifyInstanceMetadataDefaults
+            - iam:UpdateAccountPasswordPolicy
+            - s3:PutAccountPublicAccessBlock
+            Resource: '*'
 
   #
   # State Machine Functions
