@@ -33,8 +33,8 @@ logging.getLogger('urllib3').setLevel(logging.WARNING)
 def handler(event, context):
     logger.info(f"Received event: {json.dumps(event, sort_keys=True)}")
 
-    if 'enable_ebs_block_public_access' not in event['global_config']:
-        # Nothing to do
+    if not event['global_config'].get('enable_ebs_block_public_access'):
+        # Not configured, or explicitly disabled (false)
         return(event)
 
     regions = get_regions(event['cross_account_role_arn'])
@@ -43,6 +43,15 @@ def handler(event, context):
         client = get_client('ec2', event['cross_account_role_arn'], region=r)
         logger.info(f"Applying EBS Block Public access in {r} in {event['new_aws_account_id']}")
         event['messages'].append(f"Applying EBS Block Public access in {r} in {event['new_aws_account_id']}")
-        client.enable_snapshot_block_public_access(State='block-all-sharing')
+        try:
+            client.enable_snapshot_block_public_access(State='block-all-sharing')
+        except ClientError as e:
+            if e.response['Error']['Code'] in ('OperationNotPermitted', 'DeclarativePolicyViolation'):
+                # A Declarative Policy already enforces EBS snapshot block-public-access, so AWS
+                # denies this call. That's expected -- nothing for us to do here.
+                logger.warning(f"Skipping EBS snapshot BPA in {r} for {event['new_aws_account_id']}: blocked by a Declarative Policy ({e.response['Error']['Message']})")
+                event['messages'].append(f"EBS snapshot BPA in {r} skipped: enforced by a Declarative Policy")
+                continue
+            raise
 
     return(event)

@@ -33,8 +33,8 @@ logging.getLogger('urllib3').setLevel(logging.WARNING)
 def handler(event, context):
     logger.info(f"Received event: {json.dumps(event, sort_keys=True)}")
 
-    if 'enable_ebs_block_public_access' not in event['global_config']:
-        # Nothing to do
+    if not event['global_config'].get('enable_ebs_default_encryption'):
+        # Not configured, or explicitly disabled (false)
         return(event)
 
     regions = get_regions(event['cross_account_role_arn'])

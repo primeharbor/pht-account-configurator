@@ -46,11 +46,20 @@ def handler(event, context):
 
         settings = event['global_config']['require_imdsv2']
 
-        response = client.modify_instance_metadata_defaults(
-            HttpTokens=settings.get('HttpTokens', 'no-preference'),
-            HttpPutResponseHopLimit=settings.get('HttpPutResponseHopLimit', 1),
-            HttpEndpoint=settings.get('HttpEndpoint', 'no-preference'),
-            InstanceMetadataTags=settings.get('InstanceMetadataTags', 'no-preference')
-        )
+        try:
+            response = client.modify_instance_metadata_defaults(
+                HttpTokens=settings.get('HttpTokens', 'no-preference'),
+                HttpPutResponseHopLimit=settings.get('HttpPutResponseHopLimit', 1),
+                HttpEndpoint=settings.get('HttpEndpoint', 'no-preference'),
+                InstanceMetadataTags=settings.get('InstanceMetadataTags', 'no-preference')
+            )
+        except ClientError as e:
+            if e.response['Error']['Code'] in ('OperationNotPermitted', 'DeclarativePolicyViolation'):
+                # A Declarative Policy already enforces the IMDSv2 defaults, so AWS denies the
+                # ModifyInstanceMetadataDefaults call. That's expected -- nothing for us to do here.
+                logger.warning(f"Skipping IMDSv2 defaults in {r} for {event['new_aws_account_id']}: blocked by a Declarative Policy ({e.response['Error']['Message']})")
+                event['messages'].append(f"IMDSv2 defaults in {r} skipped: enforced by a Declarative Policy")
+                continue
+            raise
 
     return(event)
